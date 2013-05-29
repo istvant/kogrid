@@ -28,6 +28,8 @@
     /// KOGrid
     ///
     function KOGrid(config) {
+        var self = this;
+        
         this.transforms = [];
 
         // TODO rename to 'cols'
@@ -37,10 +39,18 @@
         this.data = ko.observableArray([]);
 
         this.view = [];
-        this.inputs = [];
+        this.input = null;
 
         this.rowFactory = (config && config.rowFactory) || function (data) {
             return data;
+        };
+        
+        this.insert = function () {
+            !self.input || self.input.insert(self);
+        };
+        
+        this.setInput = function (_input) {
+            self.input = _input;
         };
     };
 
@@ -53,22 +63,15 @@
     };
 
     KOGrid.prototype.addRow = function (_row) {
-        var row = this.rowFactory(_row);
+        var row = this.rowFactory.call(this.data, _row);
         this.data.push(row);
     };
 
-    KOGrid.prototype.addInput = function (input) {
-        this.inputs.push(input);
-    };
-
-    KOGrid.prototype.setData = function (data) {
-        var self = this;
-
-        data.forEach(function (v) {
-            self.data.push(self.rowFactory(v));
-        });
-
-        this.data(data);
+    KOGrid.prototype.setData = function (data, factory) {
+        this.data = data;
+        if (factory) {
+            this.rowFactory = factory;
+        }
     };
 
     KOGrid.prototype.flatten = function (data) {
@@ -498,9 +501,8 @@
     ///
     /// KOInputRow
     ///
-    function KOInputRow(grid) {
+    function KOInputRow() {
         var self = this;
-        var grid = grid;
         var enabled = ko.observable(true);
         var inputs = {};
 
@@ -512,14 +514,13 @@
             return inputs[col.key] || null;
         };
 
-        this.grid = grid;
         this.enabled = enabled;
         this.inputs = inputs;
 
         this.template = template;
         this.data = data;
 
-        this.insert = function () {
+        this.insert = function (grid) {
             var result = {};
 
             for (var key in inputs) {
@@ -529,10 +530,10 @@
 
             grid.addRow(result);
         };
-    };
-
-    KOInputRow.prototype.addInput = function (key, input) {
-        this.inputs[key] = input;
+        
+        this.addInput = function (key, input) {
+            self.inputs[key] = input;
+        };
     };
 
     (kog.inputs = kog.inputs || {}).KOInputRow = KOInputRow;
