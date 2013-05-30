@@ -3,25 +3,30 @@
     /// KOGridColumn
     ///
     function KOGridColumn(config) {
-        this.key = config.key;
-        this.title = config.title;
-        this.map = config.map;
+        var self = this;
 
-        this.template = function (row) {
-            return (row._class || 'data') + '-' + this.key;
+        this.key = (config && config.key) || config;
+        this.title = (config && config.title) || config;
+
+        this.template = (config && config.template) || function (row) {
+            return (row.template || 'data') + '-' + this.key;
         };
 
-        //this.value = (config && config.value) || ko.computed(function (row, val) {
-        //    if (arguments.length > 1) {
-        //        if (typeof row[this.key] === 'function') {
-        //            row[this.key](val);
-        //        } else {
-        //            row[this.key] = val;
-        //        }
-        //    }
-
-        //    return typeof row[this.key] === 'function' ? row[this.key]() : row[this.key];
-        //});
+        this.value = (config && config.value) || function (row) {
+            return ko.computed({
+                read: (config && config.get && config.get(row)) || function () {
+                    return typeof row[this.key] === 'function' ? row[this.key]() : row[this.key];
+                },
+                write: (config && config.set && config.set(row)) || function (_value) {
+                    if (typeof row[this.key] === 'function') {
+                        row[this.key](_value);
+                    } else {
+                        row[this.key] = _value;
+                    }
+                },
+                owner: self
+            });
+        };
     };
 
     ///
@@ -74,28 +79,6 @@
         }
     };
 
-    KOGrid.prototype.flatten = function (data) {
-        var stack = [];
-
-        data.forEach(function (v) {
-            stack.push(v);
-        });
-
-        var result = [];
-
-        while (stack.length > 0) {
-            var item = stack.shift();
-            result.push(item);
-            if (item._group) {
-                for (var i = item._group.length - 1; i >= 0; i--) {
-                    stack.unshift(item._group[i]);
-                }
-            }
-        }
-
-        return result;
-    };
-
     // TODO rename to 'view'
     KOGrid.prototype.rows = function () {
         var self = this;
@@ -103,12 +86,8 @@
         var result = this.data();
 
         this.transforms.forEach(function (transform) {
-            if (transform.enabled()) { result = transform.execute(result); }
+            result = transform.execute(result);
         });
-
-        // flatten data
-
-        this.view = result = this.flatten(result);
 
         return result;
     };
@@ -177,6 +156,10 @@
     };
 
     KOFilterTransform.prototype.execute = function (rows) {
+        if (!this.enabled()) {
+            return rows;
+        }
+        
         var self = this;
         var result = [];
 
@@ -215,29 +198,27 @@
     /// KOGroupTransform
     ///
     function KOGroupTransform(config) {
-        var _class = (config && config._class) || 'group';
+        this.title = (config && config.title) || "Group";
+        this.enabled = ko.observable(true);
+        this.visible = ko.observable((config && config.visible) || false);
 
-        var title = (config && config.title) || "Group";
-        var enabled = ko.observable(true);
-        var visible = ko.observable((config && config.visible) ? true : false);
         var groupers = {};
 
-        function template(col) {
+        this.groupName = (config && config.groupName) || '_group';
+        
+        this.groupFactory = (config && config.groupFactory) || function(groupKey) {
+            return groupKey;
+        };
+
+        this.template = function(col) {
             return groupers[col.key] ? groupers[col.key].template : "ko-empty-grouper";
         };
 
-        function data(col) {
+        this.data = function(col) {
             return groupers[col.key] ? groupers[col.key] : null;
         };
 
-        this._class = _class;
-        this.title = title;
-        this.enabled = enabled;
-        this.visible = visible;
         this.groupers = groupers;
-
-        this.template = template;
-        this.data = data;
     }
 
     KOGroupTransform.prototype.addGrouper = function (columnId, grouper) {
@@ -245,6 +226,10 @@
     };
 
     KOGroupTransform.prototype.execute = function (rows) {
+        if (!this.enabled()) {
+            return rows;
+        }
+        
         var self = this;
 
         var groupingEnabled = false;
@@ -261,27 +246,27 @@
         }
 
         var groups = {};
-        var group = {};
-        var groupKey;
+        var groupKey = {};
 
         // create groups
         rows.forEach(function (row) {
             for (var columnId in self.groupers) {
                 if (self.groupers[columnId].enabled()) {
-                    group[columnId] = self.groupers[columnId].group(row, columnId);
+                    groupKey[columnId] = self.groupers[columnId].group(row, columnId);
                 }
             }
 
-            groupKey = JSON.stringify(group);
+            // TODO: export as function
+            var _groupKey = JSON.stringify(groupKey);
 
-            if (!groups[groupKey]) {
-                group._class = self._class;
-                group._group = [];
-                groups[groupKey] = group;
-                group = {};
+            if (!groups[_groupKey]) {
+                var group = self.groupFactory(groupKey);
+                group[self.groupName] = group[self.groupName] || [];
+                groups[_groupKey] = group;
+                groupKey = {};
             }
 
-            groups[groupKey]._group.push(row);
+            groups[_groupKey][self.groupName].push(row);
         });
 
         var result = [];
@@ -376,6 +361,10 @@
     };
 
     KOAggregateTransform.prototype.execute = function (rows) {
+        if (!this.enabled()) {
+            return rows;
+        }
+        
         var self = this;
 
         rows.forEach(function (row) {
@@ -440,6 +429,10 @@
     };
 
     KOSortTransform.prototype.execute = function (rows) {
+        if (!this.enabled()) {
+            return rows;
+        }
+        
         var self = this;
 
         if (self.columnId()) {
@@ -524,8 +517,8 @@
             var result = {};
 
             for (var key in inputs) {
+                // use column getter/setter instead
                 result[key] = inputs[key].get();
-                inputs[key].value("");
             };
 
             grid.addRow(result);
